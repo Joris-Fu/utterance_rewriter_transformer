@@ -136,21 +136,22 @@ class Transformer:
                                                              causality=False,
                                                              scope="vanilla_attention")
                     # TODO 确认维度关系
-                    attn_dist = tf.concat(attn_dist_h,attn_dist_u,axis=1)
+                    attn_dist = tf.concat(attn_dist_h,attn_dist_u,axis=1)   # N * T_q * T_k
                     attn_dists.append(attn_dist)
                     ### Feed Forward
                     dec = tf.concat(dec_h, dec_u, axis=2)
                     dec = ff(dec, num_units=[self.hp.d_ff, self.hp.d_model])
 
         # Final linear projection (embedding weights are shared)
-        weights = tf.transpose(self.embeddings) # (d_model, vocab_size)
-        logits = tf.einsum('ntd,dk->ntk', dec, weights) # (N, T2, vocab_size)
+        # weights = tf.Variable(self.embeddings) # (d_model, vocab_size)
+        # logits = tf.einsum('ntd,dk->ntk', dec, weights) # (N, T2, vocab_size)
 
         with tf.variable_scope("gen", reuse=tf.AUTO_REUSE):
-            gens = tf.layers.dense(tf.concat([before_dec, dec, attn_dists[-1]], axis=-1), units=1, activation=tf.sigmoid,
+            # tf.concat([before_dec, dec, attn_dists[-1]], axis=-1) shape N * T_q *(2*d_model+T_k)
+            gens = tf.layers.dense(tf.concat([dec, dec_h, dec_u], axis=-1), units=1, activation=tf.sigmoid,
                                    trainable=training, use_bias=False)
-
-        logits = tf.nn.softmax(logits)
+            # gens shape N * t_q * 1
+        # logits = tf.nn.softmax(logits)
 
         # final distribution
         self.logits = self._calc_final_dist(x, gens, logits, attn_dists[-1])
@@ -172,29 +173,40 @@ class Transformer:
         """
         with tf.variable_scope('final_distribution', reuse=tf.AUTO_REUSE):
             # Multiply vocab dists by p_gen and attention dists by (1-p_gen)
-            vocab_dists = gens * vocab_dists
-            attn_dists = (1-gens) * attn_dists
+            his_dists, utt_dists = tf.split(attn_dists,[self.hp.maxlen1,self.hp.maxlen2],axis=-1)
+            his_dists = gens * his_dists
+            utt_dists = (1-gens) * utt_dists
 
-            batch_size = tf.shape(attn_dists)[0]
-            dec_t = tf.shape(attn_dists)[1]
-            attn_len = tf.shape(attn_dists)[2]
-
-            dec = tf.range(0, limit=dec_t) # [dec]
-            dec = tf.expand_dims(dec, axis=-1) # [dec, 1]
-            dec = tf.tile(dec, [1, attn_len]) # [dec, atten_len]
-            dec = tf.expand_dims(dec, axis=0) # [1, dec, atten_len]
-            dec = tf.tile(dec, [batch_size, 1, 1]) # [batch_size, dec, atten_len]
-
-            x = tf.expand_dims(x, axis=1) # [batch_size, 1, atten_len]
-            x = tf.tile(x, [1, dec_t, 1]) # [batch_size, dec, atten_len]
-            x = tf.stack([dec, x], axis=3)
-
-            attn_dists_projected = tf.map_fn(fn=lambda y: tf.scatter_nd(y[0], y[1], [dec_t, self.hp.vocab_size]),
-                                             elems=(x, attn_dists), dtype=tf.float32)
-
-            final_dists = attn_dists_projected + vocab_dists
-
+            attn_dist_his_projected = self._project_attn_to_vocab(his_dists,x,vocab_size=10600)
+            attn_dist_utt_projected = self._project_attn_to_vocab(utt_dists,x,vocab_size=10600)
+            final_dists = attn_dist_his_projected + attn_dist_utt_projected
+            # shape (batch_size * decode_step * vocab_size)
         return final_dists
+
+    def _project_attn_to_vocab(self,attn_dist,x,vocab_size=10600):
+        """
+        project attention distribution to vocab distribution
+        :param attn_dist: attention distribution (batch_size,dec_t,attn_len)
+        :param x: input list,list of num
+        :param vocab_size:
+        :return:
+        """
+        batch_size = tf.shape(his_dists)[0]
+        dec_t = tf.shape(attn_dist)[1]
+        attn_len = tf.shape(attn_dist)[2]
+        dec = tf.range(0, limit=dec_t)  # [dec]
+        dec = tf.expand_dims(dec, axis=-1)  # [dec, 1]
+        dec = tf.tile(dec, [1, attn_len])  # [dec, atten_len]
+        dec = tf.expand_dims(dec, axis=0)  # [1, dec, atten_len]
+        dec = tf.tile(dec, [batch_size, 1, 1])  # [batch_size, dec, atten_len]
+
+        x = tf.expand_dims(x, axis=1)  # [batch_size, 1, atten_len]
+        x = tf.tile(x, [1, dec_t, 1])  # [batch_size, dec, atten_len]
+        x = tf.stack([dec, x], axis=3)
+
+        attn_dists_projected = tf.map_fn(fn=lambda y: tf.scatter_nd(y[0], y[1], [dec_t, vocab_size]),
+                                         elems=(x, attn_dist), dtype=tf.float32)
+        return attn_dists_projected
 
     def _calc_loss(self, targets, final_dists):
         """

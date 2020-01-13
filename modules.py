@@ -66,14 +66,16 @@ def scaled_dot_product_attention(Q, K, V,
     scope: Optional scope for `variable_scope`.
     '''
     with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
+        #Q:(h * N, T_q, d_model / h)
+        #K:(h*N, T_k, d_model/h)
         d_k = Q.get_shape().as_list()[-1]
 
         # dot product
         outputs = tf.matmul(Q, tf.transpose(K, [0, 2, 1]))  # (N, T_q, T_k)
-
+        # h*N,T_q,T_k
         # scale
         outputs /= d_k ** 0.5
-
+        # h*N,T_q,T_k
         # key masking, delete key 0
         outputs = mask(outputs, Q, K, type="key")
 
@@ -82,7 +84,7 @@ def scaled_dot_product_attention(Q, K, V,
             outputs = mask(outputs, type="future")
 
         # softmax
-        attn_dists = tf.nn.softmax(tf.reduce_sum(tf.split(outputs, num_heads, axis=0), axis=0))
+        attn_dists = tf.nn.softmax(tf.reduce_sum(tf.split(outputs, num_heads, axis=0), axis=0))  # N,T_q,T_k
         outputs = tf.nn.softmax(outputs)
         attention = tf.transpose(outputs, [0, 2, 1])
         tf.summary.image("attention", tf.expand_dims(attention[:1], -1))
