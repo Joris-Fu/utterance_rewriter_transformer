@@ -28,13 +28,34 @@ class Transformer:
         memory: encoder outputs. (N, T1, d_model)
         '''
         with tf.variable_scope("encoder", reuse=tf.AUTO_REUSE):
-            self.x, sents1 = xs
-
+            self.x, turn_ids,sents1 = xs
+            # self.x shape:(batch_size,max_len1)
             # embedding
             enc = tf.nn.embedding_lookup(self.embeddings, self.x) # (N, T1, d_model)
             enc *= self.hp.d_model**0.5 # scale
 
             enc += positional_encoding(enc, self.hp.maxlen1)
+
+            # TODO add turn encoding,定义turn_ids如何传入，放在xs里面
+
+            if use_turn_embedding:
+                if turn_ids is None:
+                    raise ValueError("`turn_ids` must be specified if"
+                                     "`use_turn_embedding` is True.")
+                turn_cnt = max(turn_ids)
+                turn_ids_table = tf.get_variable(
+                    name="turn_embedding",
+                    shape=[turn_cnt, self.hp.d_model],  # width即embedding size
+                    initializer=create_initializer(initializer_range))
+                # This vocab will be small so we always do one-hot here, since it is always
+                # faster for a small vocabulary.
+                flat_turn_ids = tf.reshape(turn_ids, [-1]) # (batch_size*seq_len)
+                one_hot_ids = tf.one_hot(flat_turn_ids, depth=turn_size) # (batch_size*seq_len,turn_cnt)
+                turn_embedding = tf.matmul(one_hot_ids, turn_ids_table)  # (batch_size*seq_len,embed_size)
+                turn_embedding = tf.reshape(turn_embedding,
+                                                   [batch_size, seq_length, width])
+                enc += turn_embedding
+            # TODO end
             enc = tf.layers.dropout(enc, self.hp.dropout_rate, training=training)
             ## Blocks
             for i in range(self.hp.num_blocks):
@@ -48,11 +69,16 @@ class Transformer:
                                                   training=training,
                                                   causality=False)
                     # feed forward
-                    enc = ff(enc, num_units=[self.hp.d_ff, self.hp.d_model])
+                    enc_h = ff(enc, num_units=[self.hp.d_ff, self.hp.d_model])
+                    enc_u = ff(enc, num_units=[self.hp.d_ff, self.hp.d_model])
+                    enc = enc_h/2 + enc_u/2
+                    #TODO 修改成concatenation再加一个ff
         self.enc_output = enc
-        return self.enc_output, sents1
+        self.enc_output_h = enc_h
+        self.enc_output_u = enc_u
+        return self.enc_output_h, self.enc_output_u, sents1
 
-    def decode(self, xs, ys, memory, training=True):
+    def decode(self, xs, ys, memory_h, memory_u, training=True):
         '''
         memory: encoder outputs. (N, T1, d_model)
 
@@ -61,10 +87,11 @@ class Transformer:
         y: (N, T2). int32
         sents2: (N,). string.
         '''
-        self.memory = memory
+        self.memory_h = memory_h
+        self.memory_u = memory_u
         with tf.variable_scope("decoder", reuse=tf.AUTO_REUSE):
             self.decoder_inputs, y, sents2 = ys
-            x, _, = xs
+            x, _, _, = xs
 
             # embedding
             dec = tf.nn.embedding_lookup(self.embeddings, self.decoder_inputs)  # (N, T2, d_model)
@@ -89,17 +116,30 @@ class Transformer:
                                                  training=training,
                                                  causality=True,
                                                  scope="self_attention")
+                    # dec (batch_size, max_len2, embed_size)
+                    # memory_h (batch_size, max_len1, embed_size)
                     # Vanilla attention
-                    dec, attn_dist = multihead_attention(queries=dec,
-                                                          keys=self.memory,
-                                                          values=self.memory,
+                    dec_h, attn_dist_h = multihead_attention(queries=dec,
+                                                          keys=self.memory_h,
+                                                          values=self.memory_h,
                                                           num_heads=self.hp.num_heads,
                                                           dropout_rate=self.hp.dropout_rate,
                                                           training=training,
                                                           causality=False,
                                                           scope="vanilla_attention")
+                    dec_u, attn_dist_u = multihead_attention(queries=dec,
+                                                             keys=self.memory_u,
+                                                             values=self.memory_u,
+                                                             num_heads=self.hp.num_heads,
+                                                             dropout_rate=self.hp.dropout_rate,
+                                                             training=training,
+                                                             causality=False,
+                                                             scope="vanilla_attention")
+                    # TODO 确认维度关系
+                    attn_dist = tf.concat(attn_dist_h,attn_dist_u,axis=1)
                     attn_dists.append(attn_dist)
                     ### Feed Forward
+                    dec = tf.concat(dec_h, dec_u, axis=2)
                     dec = ff(dec, num_units=[self.hp.d_ff, self.hp.d_model])
 
         # Final linear projection (embedding weights are shared)
@@ -200,8 +240,8 @@ class Transformer:
             for no in range(self.hp.gpu_nums):
                 with tf.device("/gpu:%d" % no):
                     with tf.name_scope("tower_%d" % no):
-                        memory, sents1 = self.encode(xs[no])
-                        logits, y, sents2 = self.decode(xs[no], ys[no], memory)
+                        memory_h, memory_u, sents1 = self.encode(xs[no])
+                        logits, y, sents2 = self.decode(xs[no], ys[no], memory_h, memory_u)
                         tf.get_variable_scope().reuse_variables()
 
                         loss = self._calc_loss(y, logits)

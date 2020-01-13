@@ -56,7 +56,8 @@ iter = tf.data.Iterator.from_string_handle(
 
 # create a iter of the correct shape and type
 xs, ys = iter.get_next()
-
+# xs:(x, sent1.decode('utf-8'))
+# ys:(inputs, targets, sent2.decode('utf-8'))
 logging.info('# init data')
 training_iter = train_batches.make_one_shot_iterator()
 val_iter = eval_batches.make_initializable_iterator()
