@@ -73,6 +73,8 @@ class Transformer:
                     enc_u = ff(enc, num_units=[self.hp.d_ff, self.hp.d_model])
                     enc = enc_h/2 + enc_u/2
                     #TODO 修改成concatenation再加一个ff
+                    enc = tf.layers.dense(tf.concat([enc_h, enc_u], axis=-1), units=tf.shape(enc)[-1], activation=tf.sigmoid,
+                                   trainable=training, use_bias=False)
         self.enc_output = enc
         self.enc_output_h = enc_h
         self.enc_output_u = enc_u
