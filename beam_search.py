@@ -74,7 +74,7 @@ class BeamSearch:
         # This length normalization is only effective for the final results.
         self.normalize_by_length = normalize_by_length
 
-    def search(self, sess, input_x, memory):
+    def search(self, sess, input_x, memory_h,memory_u):
         """
         use beam search for decoding
         :param sess: tensorflow session
@@ -89,7 +89,8 @@ class BeamSearch:
         results = []
         steps = 0
         while steps < self.max_steps and len(results) < self.beam_size:
-            top_k = sess.run([self.top_k_], feed_dict={self.model.memory: [memory] * self.beam_size,
+            top_k = sess.run([self.top_k_], feed_dict={self.model.memory_h: [memory_h] * self.beam_size,
+                                                       self.model.memory_u: [memory_u] * self.beam_size,
                                                        self.input_x: [input_x] * self.beam_size,
                                                        self.input_y: [h.tokens for h in hyps]})
             # print(time.time() - start)

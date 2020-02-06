@@ -122,16 +122,14 @@ def get_hypotheses(num_batches, num_samples, sess, model, beam_search, tensor, h
     '''
     hypotheses, all_targets = [], []
     for _ in tqdm(range(num_batches)):
-        print(handle)
-
         articles, turn_ids, targets = sess.run(tensor, feed_dict={handle_placehoder: handle})
-        print([target.decode('utf-8') for target in targets])
-        print(articles)
-        import pdb
-        pdb.set_trace()
-        memories = sess.run(model.enc_output, feed_dict={model.x: articles,model.turn_ids:turn_ids})
-        for article, memory in zip(articles, memories):
-            summary = beam_search.search(sess, article, memory)
+        # print([target.decode('utf-8') for target in targets])
+        # print(articles)
+        # import pdb
+        # pdb.set_trace()
+        memories_h,memories_u = sess.run([model.enc_output_h,model.enc_output_u], feed_dict={model.x: articles,model.turn_ids:turn_ids})
+        for article, memory_h,memory_u in zip(articles, memories_h,memories_u):
+            summary = beam_search.search(sess, article, memory_h,memory_u)
             summary = postprocess(summary)
             hypotheses.append(summary)
         all_targets.extend([target.decode('utf-8') for target in targets])
