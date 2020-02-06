@@ -56,6 +56,7 @@ iter = tf.data.Iterator.from_string_handle(
 
 # create a iter of the correct shape and type
 xs, ys = iter.get_next()
+
 # xs:(x, sent1.decode('utf-8'))
 # ys:(inputs, targets, sent2.decode('utf-8'))
 logging.info('# init data')
@@ -96,7 +97,7 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
     for i in tqdm(range(_gs, total_steps+1)):
         _, _gs, _summary = sess.run([train_op, global_step, train_summaries], feed_dict={handle: training_handle})
         summary_writer.add_summary(_summary, _gs)
-        if _gs % (hp.gpu_nums * 5000) == 0 and _gs != 0:
+        if _gs % (hp.gpu_nums * 100) == 0 and _gs != 0:
             logging.info("steps {} is done".format(_gs))
 
             logging.info("# test evaluation")
@@ -105,7 +106,7 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
             summary_writer.add_summary(_eval_summaries, _gs)
 
             logging.info("# beam search")
-            hypotheses, all_targets = get_hypotheses(num_eval_batches, num_eval_samples, sess, m, bs, [xs[0], ys[2]],
+            hypotheses, all_targets = get_hypotheses(num_eval_batches, num_eval_samples, sess, m, bs, [xs[0],xs[1], ys[2]],
                                                      handle, val_handle)
 
             logging.info("# calc rouge score ")
