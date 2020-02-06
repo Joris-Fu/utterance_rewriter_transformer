@@ -52,18 +52,17 @@ def _load_data(fpaths, maxlen1, maxlen2):
     sents2: list of target sents
     '''
     sents1, sents2 = [], []
-    for fpath in fpaths.split('|'):
-        with open(fpath, 'r', encoding='utf-8') as f:
-            for line in f:
-                splits = line.split(',')
-                if len(splits) != 2: continue
-                sen1 = splits[1].replace('\n', '').strip()
-                sen2 = splits[0].strip()
-                if len(list(sen1)) + 1 > maxlen1-2: continue
-                if len(list(sen2)) + 1 > maxlen2-1: continue
+    with open(fpaths, 'r', encoding='utf-8') as f:
+        for line in f:
+            splits = line.split('\t\t')
+            if len(splits) != 2: continue
+            sen1 = splits[0].replace('\n', '').strip()
+            sen2 = splits[1].replace('\n', '').strip()
+            if len(list(sen1)) + 1 > maxlen1-8: continue
+            if len(list(sen2)) + 1 > maxlen2-4: continue
 
-                sents1.append(sen1.encode('utf-8'))
-                sents2.append(sen2.encode('utf-8'))
+            sents1.append(sen1.encode('utf-8'))
+            sents2.append(sen2.encode('utf-8'))
 
     return sents1[:400000], sents2[:400000]
 
@@ -89,7 +88,7 @@ def _encode(inp, token2idx, maxlen, type, maxlen_utterance=30):
         tokens = ['<s>'] + new_inp + ['</s>']
         while len(tokens) < maxlen:
             tokens.append('<pad>')
-        tokens += ['sep']['<s>'] + list(inp.split("\t")[1]) + ['</s>']
+        tokens += ['sep']+['<s>'] + list(inp.split("\t")[1]) + ['</s>']
         while len(tokens) < maxlen+maxlen_utterance:
             tokens.append('<pad>')
         return [token2idx.get(token, token2idx['<unk>']) for token in tokens]
@@ -121,13 +120,14 @@ def _generator_fn(sents1, sents2, vocab_fpath, maxlen1, maxlen2):
     '''
     token2idx, _ = _load_vocab(vocab_fpath)
     for sent1, sent2 in zip(sents1, sents2):
-        x = _encode(sent1, token2idx, maxlen1, "x")
+        x = _encode(sent1, token2idx, maxlen1, "x", maxlen2)
         # 加入turn ids
         turn_id = 1
         turn_ids = []
         for id in x:
-            if id in [0,1,2,3,4]:
+            if id in [0,1,2,3,4,5]:
                 turn_ids.append(0)
+                # 遇到<del>或者<sep>，表示进入下一轮会话
                 if id == 0 or id ==1:
                     turn_id += 1
             else:
@@ -156,12 +156,13 @@ def _input_fn(sents1, sents2, vocab_fpath, batch_size, gpu_nums, maxlen1, maxlen
         y_seqlen: int32 tensor. (N, )
         sents2: str tensor. (N,)
     '''
-    shapes = (([maxlen1], ()),
+    shapes = (([maxlen1+maxlen2], [maxlen1+maxlen2],()),
               ([maxlen2], [maxlen2], ()))
-    types = ((tf.int32, tf.string),
+    types = ((tf.int32, tf.int32, tf.string),
              (tf.int32, tf.int32, tf.string))
     # _generator_fn是一个生成器
     # 每次生成(x, sent1.decode('utf-8')), (inputs, targets, sent2.decode('utf-8'))
+
     dataset = tf.data.Dataset.from_generator(
         _generator_fn,
         output_shapes=shapes,
