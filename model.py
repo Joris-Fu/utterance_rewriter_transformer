@@ -1,9 +1,6 @@
 # -*- coding: utf-8 -*-
 #/usr/bin/python3
 '''
-date: 2019/5/21
-mail: cally.maxiong@gmail.com
-page: http://www.cnblogs.com/callyblog/
 '''
 import logging
 
@@ -22,38 +19,39 @@ class Transformer:
         self.token2idx, self.idx2token = _load_vocab(hp.vocab)
         self.embeddings = get_token_embeddings(self.hp.vocab_size, self.hp.d_model, zero_pad=True)
 
-    def encode(self, xs, training=True):
+    def encode(self, xs, training=True, use_turn_embedding=True):
         '''
         Returns
         memory: encoder outputs. (N, T1, d_model)
         '''
         with tf.variable_scope("encoder", reuse=tf.AUTO_REUSE):
-            self.x, turn_ids,sents1 = xs
+
+            self.x, self.turn_ids,sents1 = xs
             # self.x shape:(batch_size,max_len1)
             # embedding
             enc = tf.nn.embedding_lookup(self.embeddings, self.x) # (N, T1, d_model)
             enc *= self.hp.d_model**0.5 # scale
 
-            enc += positional_encoding(enc, self.hp.maxlen1)
+            enc += positional_encoding(enc, self.hp.maxlen1+self.hp.maxlen2)
 
             # TODO add turn encoding,定义turn_ids如何传入，放在xs里面
 
             if use_turn_embedding:
-                if turn_ids is None:
+                if self.turn_ids is None:
                     raise ValueError("`turn_ids` must be specified if"
                                      "`use_turn_embedding` is True.")
-                turn_cnt = max(turn_ids)
+                turn_cnt = tf.to_int32(tf.reduce_max(self.turn_ids))
                 turn_ids_table = tf.get_variable(
                     name="turn_embedding",
-                    shape=[turn_cnt, self.hp.d_model],  # width即embedding size
-                    initializer=create_initializer(initializer_range))
-                # This vocab will be small so we always do one-hot here, since it is always
-                # faster for a small vocabulary.
-                flat_turn_ids = tf.reshape(turn_ids, [-1]) # (batch_size*seq_len)
-                one_hot_ids = tf.one_hot(flat_turn_ids, depth=turn_size) # (batch_size*seq_len,turn_cnt)
+                    dtype=tf.float32,
+                    shape=(20, self.hp.d_model),  # width即embedding size
+                    initializer=tf.contrib.layers.xavier_initializer())
+
+                flat_turn_ids = tf.reshape(self.turn_ids, [-1]) # (batch_size*seq_len)
+                one_hot_ids = tf.one_hot(flat_turn_ids, depth=20) # (batch_size*seq_len,turn_cnt)
                 turn_embedding = tf.matmul(one_hot_ids, turn_ids_table)  # (batch_size*seq_len,embed_size)
                 turn_embedding = tf.reshape(turn_embedding,
-                                                   [batch_size, seq_length, width])
+                                                   [self.hp.batch_size, self.hp.maxlen1+self.hp.maxlen2, self.hp.d_model])
                 enc += turn_embedding
             # TODO end
             enc = tf.layers.dropout(enc, self.hp.dropout_rate, training=training)
@@ -71,9 +69,10 @@ class Transformer:
                     # feed forward
                     enc_h = ff(enc, num_units=[self.hp.d_ff, self.hp.d_model])
                     enc_u = ff(enc, num_units=[self.hp.d_ff, self.hp.d_model])
-                    enc = enc_h/2 + enc_u/2
+                    # enc = enc_h/2 + enc_u/2
+                    # print(enc)
                     #TODO 修改成concatenation再加一个ff
-                    enc = tf.layers.dense(tf.concat([enc_h, enc_u], axis=-1), units=tf.shape(enc)[-1], activation=tf.sigmoid,
+                    enc = tf.layers.dense(tf.concat([enc_h, enc_u], axis=-1), units=self.hp.d_model, activation=tf.sigmoid,
                                    trainable=training, use_bias=False)
         self.enc_output = enc
         self.enc_output_h = enc_h
@@ -138,10 +137,18 @@ class Transformer:
                                                              causality=False,
                                                              scope="vanilla_attention")
                     # TODO 确认维度关系
-                    attn_dist = tf.concat(attn_dist_h,attn_dist_u,axis=1)   # N * T_q * T_k
+                    # print(attn_dist_u)
+                    # print(attn_dist_h)
+                    # attn_dist = tf.concat([attn_dist_h,attn_dist_u],axis=1)   # N * T_q * T_k
+                    attn_dist = tf.layers.dense(tf.concat([attn_dist_h, attn_dist_u], axis=-1), units=self.hp.maxlen1+self.hp.maxlen2,
+                                          activation=tf.sigmoid,
+                                          trainable=training, use_bias=False)
                     attn_dists.append(attn_dist)
                     ### Feed Forward
-                    dec = tf.concat(dec_h, dec_u, axis=2)
+                    dec = tf.layers.dense(tf.concat([dec_h, dec_u], axis=-1), units=self.hp.d_model,
+                                          activation=tf.sigmoid,
+                                          trainable=training, use_bias=False)
+
                     dec = ff(dec, num_units=[self.hp.d_ff, self.hp.d_model])
 
         # Final linear projection (embedding weights are shared)
@@ -156,11 +163,11 @@ class Transformer:
         # logits = tf.nn.softmax(logits)
 
         # final distribution
-        self.logits = self._calc_final_dist(x, gens, logits, attn_dists[-1])
+        self.logits = self._calc_final_dist(x, gens, attn_dists[-1],training=training)
 
         return self.logits, y, sents2
 
-    def _calc_final_dist(self, x, gens, vocab_dists, attn_dists):
+    def _calc_final_dist(self, x, gens, attn_dists,training=True):
         """Calculate the final distribution, for the pointer-generator model
 
         Args:
@@ -175,10 +182,22 @@ class Transformer:
         """
         with tf.variable_scope('final_distribution', reuse=tf.AUTO_REUSE):
             # Multiply vocab dists by p_gen and attention dists by (1-p_gen)
-            his_dists, utt_dists = tf.split(attn_dists,[self.hp.maxlen1,self.hp.maxlen2],axis=-1)
-            his_dists = gens * his_dists
-            utt_dists = (1-gens) * utt_dists
-
+            # his_dists, utt_dists = tf.split(attn_dists,[self.hp.maxlen1,self.hp.maxlen2],axis=-1)
+            his_dists, utt_dists = attn_dists,attn_dists
+            # print(his_dists)
+            if training:
+                his_gens = tf.concat([tf.tile(gens,[1,1,self.hp.maxlen1]),tf.zeros([self.hp.batch_size,self.hp.maxlen2,self.hp.maxlen2],dtype=tf.float32)],axis=-1)
+            else:
+                dec_t = tf.shape(gens)[1]
+                his_gens = tf.concat([tf.tile(gens,[1,1,self.hp.maxlen1]),tf.zeros([self.hp.batch_size,dec_t,self.hp.maxlen2],dtype=tf.float32)],axis=-1)
+            his_dists = his_gens * his_dists
+            if training:
+                utt_gens = tf.concat([tf.zeros([self.hp.batch_size,self.hp.maxlen2,self.hp.maxlen1],dtype=tf.float32),tf.tile(1-gens,[1,1,self.hp.maxlen2])],axis=-1)
+            else:
+                dec_t = tf.shape(gens)[1]
+                utt_gens = tf.concat([tf.zeros([self.hp.batch_size,dec_t,self.hp.maxlen1],dtype=tf.float32),tf.tile(1-gens,[1,1,self.hp.maxlen2])],axis=-1)
+            utt_dists = utt_gens * utt_dists
+            # print(his_dists)
             attn_dist_his_projected = self._project_attn_to_vocab(his_dists,x,vocab_size=10600)
             attn_dist_utt_projected = self._project_attn_to_vocab(utt_dists,x,vocab_size=10600)
             final_dists = attn_dist_his_projected + attn_dist_utt_projected
@@ -193,7 +212,7 @@ class Transformer:
         :param vocab_size:
         :return:
         """
-        batch_size = tf.shape(his_dists)[0]
+        batch_size = tf.shape(attn_dist)[0]
         dec_t = tf.shape(attn_dist)[1]
         attn_len = tf.shape(attn_dist)[2]
         dec = tf.range(0, limit=dec_t)  # [dec]
@@ -261,6 +280,7 @@ class Transformer:
                         loss = self._calc_loss(y, logits)
                         losses.append(loss)
                         grads = optimizer.compute_gradients(loss)
+                        # print(grads)
                         tower_grads.append(grads)
 
         with tf.device("/cpu:0"):
@@ -282,7 +302,8 @@ class Transformer:
         average_grads = []
         for grad_and_vars in zip(*tower_grads):
             grads = []
-            for g, _ in grad_and_vars:
+            for _, g in grad_and_vars:
+
                 expend_g = tf.expand_dims(g, 0)
                 grads.append(expend_g)
             grad = tf.concat(grads, 0)
@@ -307,12 +328,12 @@ class Transformer:
         decoder_inputs = tf.ones((tf.shape(xs[0])[0], 1), tf.int32) * self.token2idx["<s>"]
         ys = (decoder_inputs, y, sents2)
 
-        memory, sents1 = self.encode(xs, False)
+        memory_h, memory_u, sents1 = self.encode(xs, False)
 
         y_hat = None
         logging.info("Inference graph is being built. Please be patient.")
         for _ in tqdm(range(self.hp.maxlen2)):
-            logits, y, sents2 = self.decode(xs, ys, memory, False)
+            logits, y, sents2 = self.decode(xs, ys, memory_h, memory_u, False)
             y_hat = tf.to_int32(tf.argmax(logits, axis=-1))
 
             if tf.reduce_sum(y_hat, 1) == self.token2idx["<pad>"]: break
@@ -332,3 +353,7 @@ class Transformer:
         summaries = tf.summary.merge_all()
 
         return y_hat, summaries
+
+def create_initializer(initializer_range=0.02):
+    """Creates a `truncated_normal_initializer` with the given range."""
+    return tf.truncated_normal_initializer(stddev=initializer_range)
