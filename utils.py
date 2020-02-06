@@ -122,8 +122,14 @@ def get_hypotheses(num_batches, num_samples, sess, model, beam_search, tensor, h
     '''
     hypotheses, all_targets = [], []
     for _ in tqdm(range(num_batches)):
-        articles, targets = sess.run(tensor, feed_dict={handle_placehoder: handle})
-        memories = sess.run(model.enc_output, feed_dict={model.x: articles})
+        print(handle)
+
+        articles, turn_ids, targets = sess.run(tensor, feed_dict={handle_placehoder: handle})
+        print([target.decode('utf-8') for target in targets])
+        print(articles)
+        import pdb
+        pdb.set_trace()
+        memories = sess.run(model.enc_output, feed_dict={model.x: articles,model.turn_ids:turn_ids})
         for article, memory in zip(articles, memories):
             summary = beam_search.search(sess, article, memory)
             summary = postprocess(summary)
@@ -204,4 +210,4 @@ def split_input(xs, ys, gpu_nums):
     xs = [tf.split(x, num_or_size_splits=gpu_nums, axis=0) for x in xs]
     ys = [tf.split(y, num_or_size_splits=gpu_nums, axis=0) for y in ys]
 
-    return [(xs[0][i], xs[1][i]) for i in range(gpu_nums)], [(ys[0][i], ys[1][i], ys[2][i]) for i in range(gpu_nums)]
+    return [(xs[0][i], xs[1][i], xs[2][i]) for i in range(gpu_nums)], [(ys[0][i], ys[1][i], ys[2][i]) for i in range(gpu_nums)]
