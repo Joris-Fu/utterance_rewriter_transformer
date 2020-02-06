@@ -15,12 +15,12 @@ class Hparams:
 
     # train
     ## files
-    parser.add_argument('--train', default='data/test.csv',
+    parser.add_argument('--train', default='corpus_reformulated.txt',
                              help="data for train")
 
-    parser.add_argument('--eval', default='data/test.csv',
+    parser.add_argument('--eval', default='corpus_reformulated_dev.txt',
                              help="data for evaluation")
-    parser.add_argument('--eval_rouge', default='data/test_summary.csv',
+    parser.add_argument('--eval_rouge', default='test_summary.csv',
                              help="data for calculate rouge score")
 
     ## vocabulary
