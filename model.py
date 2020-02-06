@@ -33,7 +33,7 @@ class Transformer:
             enc *= self.hp.d_model**0.5 # scale
 
             enc += positional_encoding(enc, self.hp.maxlen1+self.hp.maxlen2)
-
+            batch_size = tf.shape(enc)[0]
             # TODO add turn encoding,定义turn_ids如何传入，放在xs里面
 
             if use_turn_embedding:
@@ -51,7 +51,7 @@ class Transformer:
                 one_hot_ids = tf.one_hot(flat_turn_ids, depth=20) # (batch_size*seq_len,turn_cnt)
                 turn_embedding = tf.matmul(one_hot_ids, turn_ids_table)  # (batch_size*seq_len,embed_size)
                 turn_embedding = tf.reshape(turn_embedding,
-                                                   [self.hp.batch_size, self.hp.maxlen1+self.hp.maxlen2, self.hp.d_model])
+                                                   [batch_size, self.hp.maxlen1+self.hp.maxlen2, self.hp.d_model])
                 enc += turn_embedding
             # TODO end
             enc = tf.layers.dropout(enc, self.hp.dropout_rate, training=training)
@@ -180,22 +180,23 @@ class Transformer:
         Returns:
           final_dists: The final distributions. List length max_dec_steps of (batch_size, extended_vsize) arrays.
         """
+        batch_size = tf.shape(x)[0]
         with tf.variable_scope('final_distribution', reuse=tf.AUTO_REUSE):
             # Multiply vocab dists by p_gen and attention dists by (1-p_gen)
             # his_dists, utt_dists = tf.split(attn_dists,[self.hp.maxlen1,self.hp.maxlen2],axis=-1)
             his_dists, utt_dists = attn_dists,attn_dists
             # print(his_dists)
             if training:
-                his_gens = tf.concat([tf.tile(gens,[1,1,self.hp.maxlen1]),tf.zeros([self.hp.batch_size,self.hp.maxlen2,self.hp.maxlen2],dtype=tf.float32)],axis=-1)
+                his_gens = tf.concat([tf.tile(gens,[1,1,self.hp.maxlen1]),tf.zeros([batch_size,self.hp.maxlen2,self.hp.maxlen2],dtype=tf.float32)],axis=-1)
             else:
                 dec_t = tf.shape(gens)[1]
-                his_gens = tf.concat([tf.tile(gens,[1,1,self.hp.maxlen1]),tf.zeros([self.hp.batch_size,dec_t,self.hp.maxlen2],dtype=tf.float32)],axis=-1)
+                his_gens = tf.concat([tf.tile(gens,[1,1,self.hp.maxlen1]),tf.zeros([batch_size,dec_t,self.hp.maxlen2],dtype=tf.float32)],axis=-1)
             his_dists = his_gens * his_dists
             if training:
-                utt_gens = tf.concat([tf.zeros([self.hp.batch_size,self.hp.maxlen2,self.hp.maxlen1],dtype=tf.float32),tf.tile(1-gens,[1,1,self.hp.maxlen2])],axis=-1)
+                utt_gens = tf.concat([tf.zeros([batch_size,self.hp.maxlen2,self.hp.maxlen1],dtype=tf.float32),tf.tile(1-gens,[1,1,self.hp.maxlen2])],axis=-1)
             else:
                 dec_t = tf.shape(gens)[1]
-                utt_gens = tf.concat([tf.zeros([self.hp.batch_size,dec_t,self.hp.maxlen1],dtype=tf.float32),tf.tile(1-gens,[1,1,self.hp.maxlen2])],axis=-1)
+                utt_gens = tf.concat([tf.zeros([batch_size,dec_t,self.hp.maxlen1],dtype=tf.float32),tf.tile(1-gens,[1,1,self.hp.maxlen2])],axis=-1)
             utt_dists = utt_gens * utt_dists
             # print(his_dists)
             attn_dist_his_projected = self._project_attn_to_vocab(his_dists,x,vocab_size=10600)
