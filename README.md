@@ -1,5 +1,7 @@
 # Utterance rewriter with transformer
 
+## Now you can train the model by runing the script train.py!
+
 ## Requirements
 * python==3.x (Let's move on to python 3 if you still use python 2)
 * tensorflow==1.12.0
@@ -10,7 +12,7 @@
 ## Model Structure
 ### Based
 Model is based on [Attention Is All You Need](https://arxiv.org/abs/1706.03762) and [Get To The Point: Summarization with Pointer-Generator Networks](https://arxiv.org/abs/1704.04368)
-We implemented the transformer version of [Improving Multi-turn Dialogue Modelling with Utterance ReWriter](https://arxiv.org/abs/1906.07004). The author also provide LSTM version at https://github.com/chin-gyou/dialogue-utterance-rewriter, recommand to check it out!
+We implemented the transformer version of [Improving Multi-turn Dialogue Modelling with Utterance ReWriter](https://arxiv.org/abs/1906.07004) based on Kyubyong's [Transformer](https://github.com/Kyubyong/transformer). The paper's author also provide LSTM version at https://github.com/chin-gyou/dialogue-utterance-rewriter, recommand to check it out!
 
 # PS
 The project is under construction. We will update the evaluation result when finished!
