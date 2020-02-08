@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 #/usr/bin/python3
 '''
+Last modified by fu shiding
+fsd.joris@hotmail.com
 '''
 import logging
 

@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
 #/usr/bin/python3
 '''
-date: 2019/5/21
-mail: cally.maxiong@gmail.com
-page: http://www.cnblogs.com/callyblog/
+Last modified by fu shiding
+fsd.joris@hotmail.com
 '''
 
 import logging
@@ -94,10 +93,12 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
 
     total_steps = hp.num_epochs * num_train_batches
     _gs = sess.run(global_step)
-    for i in tqdm(range(_gs, total_steps+1)):
-        _, _gs, _summary = sess.run([train_op, global_step, train_summaries], feed_dict={handle: training_handle})
+    for i in range(_gs, total_steps+1):
+        _loss,_, _gs, _summary = sess.run([loss,train_op, global_step, train_summaries], feed_dict={handle: training_handle})
         summary_writer.add_summary(_summary, _gs)
-        if _gs % (hp.gpu_nums * 100) == 0 and _gs != 0:
+        if _gs % (hp.gpu_nums * 50) == 0 and _gs != 0:
+            logging.info("Loss at step %d is %f" % (_gs,_loss))
+        if _gs % (hp.gpu_nums * 2000) == 0 and _gs != 0:
             logging.info("steps {} is done".format(_gs))
 
             logging.info("# test evaluation")

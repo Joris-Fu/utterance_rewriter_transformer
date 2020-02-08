@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
 #/usr/bin/python3
 '''
-date: 2019/5/21
-mail: cally.maxiong@gmail.com
-page: http://www.cnblogs.com/callyblog/
+Last modified by fu shiding
+fsd.joris@hotmail.com
 '''
 import argparse
 
@@ -11,7 +10,7 @@ class Hparams:
     parser = argparse.ArgumentParser()
 
     # prepro
-    parser.add_argument('--vocab_size', default=10598, type=int)
+    parser.add_argument('--vocab_size', default=10600, type=int)
 
     # train
     ## files
@@ -35,10 +34,10 @@ class Hparams:
     parser.add_argument('--eval_batch_size', default=32, type=int)
 
     parser.add_argument('--lr', default=0.0005, type=float, help="learning rate")
-    parser.add_argument('--warmup_steps', default=4000, type=int)
-    parser.add_argument('--logdir', default="log/2", help="log directory")
+    parser.add_argument('--warmup_steps', default=400, type=int)
+    parser.add_argument('--logdir', default="log/lr_0005_warm_400_epoch_5", help="log directory")
     parser.add_argument('--num_epochs', default=5, type=int)
-    parser.add_argument('--evaldir', default="eval/1", help="evaluation dir")
+    parser.add_argument('--evaldir', default="eval/lr_0005_warm_400_epoch_5", help="evaluation dir")
 
     # model
     parser.add_argument('--d_model', default=512, type=int,

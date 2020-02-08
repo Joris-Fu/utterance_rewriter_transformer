@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
-#!/usr/bin/python3
+#/usr/bin/python3
 '''
-date: 2019/5/21
-mail: cally.maxiong@gmail.com
-page: http://www.cnblogs.com/callyblog/
+Last modified by fu shiding
+fsd.joris@hotmail.com
 '''
 
 import tensorflow as tf
